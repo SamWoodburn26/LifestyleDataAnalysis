@@ -234,7 +234,6 @@ def bulk_load_data(cur, data, batch_size=500):
 
         # get data for workout table
         workout_rows.append((
-            pid,
             record.get('session_duration', 0.0),
             record.get('calories_burned', 0.0),
             record.get('workout_type', 'General'),
@@ -343,7 +342,7 @@ def main():
         print("=" * 60)
         print("ALL TASKS COMPLETED SUCCESSFULLY!")
         print("=" * 60 + "\n")
-        
+
     # error handeling
     except FileNotFoundError:
         print(f"\nERROR: File '{DATA_FILE}' not found!\n")
