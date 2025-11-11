@@ -11,17 +11,20 @@ import json
 import csv
 import sys
 
+
 # function to get connection
 def getconn():
     """Establishes connection to AWS RDS MySQL database"""
     return pymysql.connect(
-        host="lifestyle-db.cmf0qks8a3pr.us-east-1.rds.amazonaws.com",
+        #host="lifestyle-db.cmf0qks8a3pr.us-east-1.rds.amazonaws.com",
+        host="database-1.c9ikwq088lg0.us-east-2.rds.amazonaws.com",
         port=3306,
         user="root",
         password="Casey9203",
         database=None,
         ssl={"ca": "global-bundle.pem"}
     )
+
 
 # function to set up our database schema
 def setup_database_schema(cur):
@@ -38,6 +41,7 @@ def setup_database_schema(cur):
     cur.execute('DROP TABLE IF EXISTS Workout, PersonWorkout, Diet, Health, Person')
     cur.execute('SET FOREIGN_KEY_CHECKS=1')
     
+    # persone table
     cur.execute('''
         CREATE TABLE Person (
             personID INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -47,6 +51,8 @@ def setup_database_schema(cur):
             height FLOAT
         )
     ''')
+
+    # workout table
     cur.execute('''
         CREATE TABLE Workout (
             workoutID INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -59,16 +65,19 @@ def setup_database_schema(cur):
             body_part VARCHAR(30)
         )
     ''')
+
+    # personWorkout table
     cur.execute('''
         CREATE TABLE PersonWorkout (
             personID INT NOT NULL,
             workoutID INT NOT NULL,
-            gender VARCHAR(10),
             PRIMARY KEY (personID, workoutID),
             FOREIGN KEY(personID) REFERENCES Person(personID),
             FOREIGN KEY(workoutID) REFERENCES Workout(workoutID)
         )
     ''')
+
+    # diet table
     cur.execute('''
         CREATE TABLE Diet (
             dietID INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -83,6 +92,8 @@ def setup_database_schema(cur):
             FOREIGN KEY(personID) REFERENCES Person(personID) 
         )
     ''')
+
+    # health table
     cur.execute('''
         CREATE TABLE Health (
             healthID INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -94,10 +105,10 @@ def setup_database_schema(cur):
             FOREIGN KEY(personID) REFERENCES Person(personID)
         )
     ''')
-    
     print("\nSchema created successfully!\n")
 
-# parse through our data file
+
+# parse through our data file to return cleaner data
 def parse_data_file(file_path):
     """Parses input data file and returns structured data"""
     print("=" * 60)
@@ -159,15 +170,17 @@ def parse_data_file(file_path):
                         normalized[new_key] = cleaned_row[old_key]
                 data.append(normalized)
         print("CSV file parsed successfully")
+
     # parse through json file
     elif file_path.endswith('.json'):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         print("JSON file parsed successfully")
+
     # if correct file formats couldn't be found
     else:
         raise ValueError("Unsupported file format. Use .csv or .json")
-    
+    #print results
     print(f"Total records parsed: {len(data)}")
     print(f"Sample record keys: {list(data[0].keys()) if data else 'No data'}\n")
     return data
@@ -179,175 +192,124 @@ def bulk_load_data(cur, data, batch_size=500):
     print("TASK 3 (enhanced): Loading Data into Database")
     print("=" * 60)
 
-    # error handling- no data to load
+    # error handeling
     if not data:
         print("No data to load.")
         return
-
-    cur.execute("USE lifestyle_db;")
-
-    inserted_person = inserted_workout = inserted_diet = inserted_health = 0
-
-    # Simple, safe per-record inserts (fast enough for class-sized datasets)
-    for rec in data:
-        # Person
-        cur.execute("""
-            INSERT INTO Person (age, gender, weight, height)
-            VALUES (%s, %s, %s, %s)
-        """, (
-            rec.get("age"),
-            rec.get("gender"),
-            rec.get("weight"),
-            rec.get("height"),
+    
+    # person table 
+    person = []
+    for record in data:
+        person.append((
+            record.get('age'),
+            record.get('gender'),
+            record.get('weight'),
+            record.get('height')
         ))
-        person_id = cur.lastrowid
-        inserted_person += 1
+    total = len(person)
+    inserted_person_ids = []
+    cur.execute('SET FOREIGN_KEY_CHECKS=0')
+    # insert into person table
+    insert_person_sql = 'INSERT INTO Person (age, gender, weight, height) VALUES (%s, %s, %s, %s)'
+    i = 0
+    while i < total:
+        batch = person[i:i+batch_size]
+        cur.executemany(insert_person_sql, batch)
+        last_id = cur.lastrowid
+        first_id = last_id - len(batch) + 1
+        batch_ids = list(range(first_id, last_id + 1))
+        inserted_person_ids.extend(batch_ids)
+        i += batch_size
+        # if len(inserted_person_ids) % 5000 == 0 or i >= total:
+        #     print(f"  Inserted {len(inserted_person_ids)}/{total} Person rows...")
 
-        # Workout
-        cur.execute("""
-            INSERT INTO Workout (session_duration, calories_burned, workout_type,
-                                 name_of_exercise, sets, reps, body_part)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (
-            rec.get("session_duration", 0.0),
-            rec.get("calories_burned", 0.0),
-            rec.get("workout_type"),
-            rec.get("name_of_exercise"),
-            rec.get("sets"),
-            rec.get("reps"),
-            rec.get("body_part"),
+    # intiialize batch rows for workout, diet, health
+    workout_rows = []
+    diet_rows = []
+    health_rows = []
+
+    for idx, record in enumerate(data):
+        # manually get each id (fix later to use auto increment)
+        pid = inserted_person_ids[idx]
+
+        # get data for workout table
+        workout_rows.append((
+            pid,
+            record.get('session_duration', 0.0),
+            record.get('calories_burned', 0.0),
+            record.get('workout_type', 'General'),
+            record.get('name_of_exercise', 'Cardio'),
+            record.get('sets', 3),
+            record.get('reps', 10),
+            record.get('body_part', 'Full Body')
         ))
-        workout_id = cur.lastrowid
-        inserted_workout += 1
 
-        # Link (junction)
-        cur.execute("""
-            INSERT INTO PersonWorkout (personID, workoutID)
-            VALUES (%s, %s)
-        """, (person_id, workout_id))
-
-        # Diet (optional defaults if missing)
-        cur.execute("""
-            INSERT INTO Diet (personID, water_intake, carbs, proteins, fats, calories,
-                              diet_type, serving_size)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            person_id,
-            rec.get("water_intake"),
-            rec.get("carbs"),
-            rec.get("proteins"),
-            rec.get("fats"),
-            rec.get("calories"),
-            rec.get("diet_type"),
-            rec.get("serving_size"),
+        # get data for diet table
+        diet_rows.append((
+            pid,
+            record.get('water_intake'),
+            record.get('carbs'),
+            record.get('proteins'),
+            record.get('fats'),
+            record.get('calories'),
+            record.get('diet_type'),
+            record.get('serving_size'),
         ))
-        inserted_diet += 1
 
-        # Health
-        cur.execute("""
-            INSERT INTO Health (personID, max_BPM, resting_BPM, fat_percentage, cholesterol)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            person_id,
-            rec.get("max_BPM"),
-            rec.get("resting_BPM"),
-            rec.get("fat_percentage"),
-            rec.get("cholesterol"),
+        # get data for health table
+        health_rows.append((
+            pid,
+            record.get('max_BPM'),
+            record.get('resting_BPM'),
+            record.get('fat_percentage'),
+            record.get('cholesterol'),
         ))
-        inserted_health += 1
-    # person table
-    # person = []
-    # for record in data:
-    #     person.append((
-    #         record.get('age'),
-    #         record.get('gender'),
-    #         record.get('weight'),
-    #         record.get('height')
-    #     ))
-    # total = len(person)
-    # inserted_person_ids = []
-    # cur.execute('SET FOREIGN_KEY_CHECKS=0')
-    # # insert into person table
-    # insert_person_sql = 'INSERT INTO Person (age, gender, weight, height) VALUES (%s, %s, %s, %s)'
-    # i = 0
-    # while i < total:
-    #     batch = person[i:i+batch_size]
-    #     cur.executemany(insert_person_sql, batch)
-    #     last_id = cur.lastrowid
-    #     first_id = last_id - len(batch) + 1
-    #     batch_ids = list(range(first_id, last_id + 1))
-    #     inserted_person_ids.extend(batch_ids)
-    #     i += batch_size
-    #     if len(inserted_person_ids) % 5000 == 0 or i >= total:
-    #         print(f"  Inserted {len(inserted_person_ids)}/{total} Person rows...")
 
-    # # Prepare default workout, diet, health rows
-    # workout_rows = []
-    # diet_rows = []
-    # health_rows = []
+    # insert into workout
+    cur.executemany('''
+        INSERT INTO Workout (session_duration, calories_burned, workout_type,
+                            name_of_exercise, sets, reps, body_part)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    ''', workout_rows)
 
-    # for idx, record in enumerate(data):
-    #     pid = inserted_person_ids[idx]
+    # insert into personWorkout
+    workout_last_id = cur.lastrowid
+    workout_first_id = workout_last_id - len(workout_rows) + 1
+    inserted_workout_ids = list(range(workout_first_id, workout_last_id + 1))
+    # pair each personID with its corresponding workoutID (same order as data)
+    link_rows = list(zip(inserted_person_ids, inserted_workout_ids))
+    cur.executemany('''
+        INSERT INTO PersonWorkout (personID, workoutID)
+        VALUES (%s, %s)
+    ''', link_rows)
 
-    #     # data for the workout table
-    #     workout_rows.append((
-    #         pid,
-    #         record.get('session_duration', 30.0),
-    #         record.get('calories_burned', 200.0),
-    #         record.get('workout_type', 'General'),
-    #         record.get('name_of_exercise', 'Cardio'),
-    #         record.get('sets', 3),
-    #         record.get('reps', 10),
-    #         record.get('body_part', 'Full Body')
-    #     ))
+    # insert into diet
+    cur.executemany('''
+        INSERT INTO Diet (personID, water_intake, carbs, proteins, fats, calories,
+                        diet_type, serving_size)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+    ''', diet_rows)
 
-    #     # data for the diet table
-    #     diet_rows.append((
-    #         pid,
-    #         record.get('meal_type', 'Meal'),
-    #         record.get('calories', 2000),
-    #         record.get('protein', 50),
-    #         record.get('carbs', 250),
-    #         record.get('fats', 70)
-    #     ))
+    # insert into health
+    cur.executemany('''
+        INSERT INTO Health (personID, max_BPM, resting_BPM, fat_percentage, cholesterol)
+        VALUES (%s,%s,%s,%s,%s)
+    ''', health_rows)
 
-    #     # data for the health table
-    #     health_rows.append((
-    #         pid,
-    #         record.get('heart_rate', 75),
-    #         record.get('sleep_hours', 7.0),
-    #         record.get('stress_level', 'Normal')
-    #     ))
-
-    # # Batch inserts
-    # cur.executemany('''
-    #     INSERT INTO Workout (personID, session_duration, calories_burned, workout_type,
-    #                          name_of_exercise, sets, reps, body_part)
-    #     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-    # ''', workout_rows)
-
-    # cur.executemany('''
-    #     INSERT INTO Diet (personID, meal_type, calories, protein, carbs, fats)
-    #     VALUES (%s,%s,%s,%s,%s,%s)
-    # ''', diet_rows)
-
-    # cur.executemany('''
-    #     INSERT INTO Health (personID, heart_rate, sleep_hours, stress_level)
-    #     VALUES (%s,%s,%s,%s)
-    # ''', health_rows)
-
-    # cur.execute('SET FOREIGN_KEY_CHECKS=1')
+    cur.execute('SET FOREIGN_KEY_CHECKS=1')
 
     print("\nData loading completed!")
-    print(f"Person: {inserted_person}, Workout: {inserted_workout}, Diet: {inserted_diet}, Health: {inserted_health}\n")
+    print(f"Successfully inserted Person: {len(inserted_person_ids)}")
+    print(f"Workout rows: {len(workout_rows)}, Diet rows: {len(diet_rows)}, Health rows: {len(health_rows)}, PersonWorkout rows: {len(link_rows)}\n")
 
+    
 # verfiy data has been loaded
 def verify_data_loaded(cur):
     """Verifies that data was loaded correctly"""
     print("=" * 60)
     print("VERIFICATION: Checking Loaded Data")
     print("=" * 60)
-    for table in ['Person', 'Workout', 'PersonWorkout' 'Diet', 'Health']:
+    for table in ['Person', 'Workout', 'PersonWorkout', 'Diet', 'Health']:
         cur.execute(f'SELECT COUNT(*) FROM {table}')
         print(f" {table:12} table: {cur.fetchone()[0]} rows")
     print()
@@ -362,14 +324,17 @@ def main():
     
     cnx, cur = None, None
     try:
+        # connect to database
         print("Connecting to database...")
         cnx = getconn()
         cur = cnx.cursor()
         print("Connected successfully\n")
         
+        # set up database 
         setup_database_schema(cur)
         cnx.commit()
         
+        # go through data file and load data
         data = parse_data_file(DATA_FILE)
         bulk_load_data(cur, data)
         cnx.commit()
@@ -378,6 +343,7 @@ def main():
         print("=" * 60)
         print("ALL TASKS COMPLETED SUCCESSFULLY!")
         print("=" * 60 + "\n")
+        
     # error handeling
     except FileNotFoundError:
         print(f"\nERROR: File '{DATA_FILE}' not found!\n")
