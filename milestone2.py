@@ -125,7 +125,7 @@ def parse_data_file(file_path):
         'Height (m)': 'height',
 
         'Session Duration': 'session_duration',
-        'Calories Burned': 'calories_burned',
+        'Calories_Burned': 'calories_burned',
         'Workout Type': 'workout_type',
         'Exercise Name': 'name_of_exercise',
         'Sets': 'sets',
@@ -342,6 +342,9 @@ def main():
         print("=" * 60)
         print("ALL TASKS COMPLETED SUCCESSFULLY!")
         print("=" * 60 + "\n")
+
+        # making the graphs
+
 
     # error handeling
     except FileNotFoundError:
