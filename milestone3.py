@@ -1,6 +1,7 @@
 
 # function to get connection
 from matplotlib import pyplot as plt
+from matplotlib.gridspec import GridSpec
 import numpy as np
 import pandas as pd
 import pymysql
@@ -122,8 +123,8 @@ def plot_diet_vs_fat(ax):
     ax.set_ylim(25.7,26.4)
     # labels
     ax.set_title("Diet Type vs. Average Fat Percentage")
-    ax.set_xlabel("Resting BPM")
-    ax.set_ylabel("Calories Burned")
+    ax.set_xlabel("Diet Type")
+    ax.set_ylabel("Fat Percentage")
     # add a grid in the background for better visualization
     ax.grid(True, alpha=0.3)
 
@@ -187,7 +188,7 @@ def get_calories_dbpm_df():
         # close connection
         conn.close()
 # make graph
-def plot_calories_vs_dbpmax(ax):
+def plot_calories_vs_dbpm(ax):
     # dataframe
     df = get_calories_dbpm_df()
     # graph
@@ -207,7 +208,7 @@ def plot_dashboard():
     plot_bpm_vs_cals(axes[0,1])
     plot_diet_vs_fat(axes[0,2])
     plot_water_vs_rbpm(axes[1,0])
-    plot_calories_vs_dbpmax(axes[1,2])
+    plot_calories_vs_dbpm(axes[1,2])
     axes[1,1].axis("off")
     # title
     fig.suptitle("Lifestyle Data For Ages 20-30: Dashboard", fontsize=20, y=0.98)
